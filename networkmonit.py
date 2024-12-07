@@ -12,7 +12,7 @@ import requests
 monitored_hosts_ip = [] #list of IP addresses to be monitored: '192.168.0.1'
 monitored_hosts_fqdn = [] #list of FQDNs to be displayed in description section of a table: Mikrotik(Cloud) and so on
 monitored_hosts_abbrev = [] #list of abbreviations to be displayed by chart bars: M(C), which means Mikrotik(Cloud)
-
+last_notification_time = 0
 #####################################SECTION TO PUSH NOTIFICATIONS TO TELEGRAM CHAT#####################################
 # Your bot's API token
 bot_token = 'YOUR_BOT_TOKEN'
@@ -41,6 +41,11 @@ def send_message(chat_id, btoken, alert_notification):
 
 # hysteresis(our main metric using which the main monitoring statistic are displayed: which host is unreachable, which is reachable and has average ping latency)
 UNAVAILABILITY_THRESHOLDS = 3
+
+# notification interval
+NOTIFICATION_INTERVAL = 120
+
+############################################################################################################################
 
 # this function determines all None variables in array. If all elements are None, function returns True
 def host_unavailability(arr):
@@ -134,6 +139,8 @@ app.layout = html.Div([
 )
 def update_chart(n_intervals):
 
+    global last_notification_time
+
     unavailable_hosts = []
     data = []
     avg_pings = []
@@ -153,10 +160,13 @@ def update_chart(n_intervals):
             hovertext=f"Avg Ping: {avg_ping}" if avg_ping else "Unreachable"
         ))
 
-    # push notification to Telegram monitoring channel
+    # chech if notification need to be sent
+    current_time = time.time()
     if len(unavailable_hosts) > 0:
-        notification = f"Unreachable host(s): {','.join(unavailable_hosts)}"
-        send_message(chat_id, bot_token, notification)
+        if current_time - last_notification_time > NOTIFICATION_INTERVAL:
+            notification = f"Unreachable host(s): {','.join(unavailable_hosts)}"
+            print(notification)
+            last_notification_time = current_time
 
 
     # Prepare data for the table
