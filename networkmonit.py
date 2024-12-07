@@ -115,7 +115,7 @@ app.layout = html.Div([
         style_cell={'textAlign': 'left'},
         style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'}
     ),
-    dcc.Interval(id='interval-refresh', interval=30000, n_intervals=0)  # Refresh every 45 seconds
+    dcc.Interval(id='interval-refresh', interval=30000, n_intervals=0)  # Refresh every 30 seconds
     """
     interval=30000: This specifies the interval in milliseconds between each "tick" or trigger of the Interval. 
     The value 30000 means that the interval will occur every 30,000 milliseconds, or 30 seconds.
