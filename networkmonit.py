@@ -30,7 +30,7 @@ def send_message(chat_id, btoken, alert_notification):
     
     response = requests.post(url, json=payload)
     
-    #verify, if request is successed
+     #verify, if request is successed
     """
     if response.status_code == 200:
         print("Message sent successfully!")
@@ -58,7 +58,6 @@ def average_ping_latency(arr):
 
 # the main ping logic
 def ping_host(hosts_ping_checking, host):
-
     unavailability_count = 0
     temp_arr = []
     # this function accomplishes 3 cycle of ping, each of them do 4 attemp to get icmp reply from pinged host
@@ -72,10 +71,10 @@ def ping_host(hosts_ping_checking, host):
                 temp_arr.append(round(res * 1000, 2) if res is not None else None)
             except Exception as e:
                 temp_arr.append(None)
-                # after each ping attempt(each of 4), function gets unavailability_count variable. If this unavailability_count = UNAVAILABILITY_THRESHOLDS - host is marked as unreachable
+                # after each ping attempt(each of 4), function gets unavailability_count variable. If this unavailability_count = UNAVAILABILITY
         if host_unavailability(temp_arr) == True:
                   unavailability_count +=1
-        time.sleep(5)
+        time.sleep(2)
     avg_ping = average_ping_latency(temp_arr)
     if unavailability_count >= UNAVAILABILITY_THRESHOLDS:
         hosts_ping_checking[host] = {'color': 'red', 'avg_ping': 'Unreachable'}
@@ -83,7 +82,7 @@ def ping_host(hosts_ping_checking, host):
         hosts_ping_checking[host] = {'color': 'green', 'avg_ping': avg_ping}
 
 # Background function to ping each host independently and keep updating
-def background_ping_update(hosts_ping_checking):
+def background_ping_update(hosts_ping_checking, ping_complete_event):
     while True:  # Continuously ping the hosts
         processes = []
         for host in monitored_hosts_ip:
@@ -98,7 +97,9 @@ def background_ping_update(hosts_ping_checking):
         for process in processes:
             process.join()
 
-        time.sleep(10)  # Wait 10 seconds before the next ping round
+        ping_complete_event.set()
+        time.sleep(15)  # Wait 15 seconds before the next ping round
+        ping_complete_event.clear()
 
 # Dash App Setup
 app = dash.Dash(__name__)
@@ -120,24 +121,20 @@ app.layout = html.Div([
         style_cell={'textAlign': 'left'},
         style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'}
     ),
-    dcc.Interval(id='interval-refresh', interval=30000, n_intervals=0)  # Refresh every 30 seconds
-    """
-    interval=30000: This specifies the interval in milliseconds between each "tick" or trigger of the Interval. 
-    The value 30000 means that the interval will occur every 30,000 milliseconds, or 30 seconds.
-
-    n_intervals=0: This is the initial number of intervals that have occurred. In this case, it starts at 0, meaning no interval has passed when the app first loads. 
-    This value increments each time the interval is triggered.
-    """
-
+    dcc.Interval(id='interval-refresh', interval=15000, n_intervals=0)  # Refresh every 15 seconds
 ])
 
 # Callback to Update Chart
 @app.callback(
     [Output('latency-chart', 'figure'),
     Output('monitoring-table', 'data')],
-    [Input('interval-refresh', 'n_intervals')] # when the interval counting expires, in this case is Input, our Outputs are updated. In this case, these are app's elements with id latency-chart and monitoring-table
+    [Input('interval-refresh', 'n_intervals')]
 )
 def update_chart(n_intervals):
+
+    # Wait until the pinging is complete
+    ping_complete_event.wait()  # Ensure only executed after all threads complete their ping checks
+
 
     global last_notification_time
 
@@ -146,10 +143,11 @@ def update_chart(n_intervals):
     avg_pings = []
 
     for i, host in enumerate(monitored_hosts_ip):
-        unreachable_char_size = 100 # default char size, when host is unreachable
+        unreachable_char_size = 100
         status = hosts_net_availability.get(host, {'avg_ping': None, 'color': 'gray'})
         color = status['color']
-        avg_ping = status['avg_ping'] if status['avg_ping'] != 'Unreachable' else unavailable_hosts.append(host) # if hosts_net_availability dictionary has avg_ping with properly average ping latency, this avg is appended to avg_pings array. If not, is appended to unavailable_hosts.append 
+        # if hosts_net_availability dictionary has avg_ping with properly average ping latency, this avg is appended to avg_pings array. If not, is appended to unavailable_hosts
+        avg_ping = status['avg_ping'] if status['avg_ping'] != 'Unreachable' else unavailable_hosts.append(monitored_hosts_fqdn[i]) 
         avg_pings.append(avg_ping)
         data.append(go.Bar(
             x=[monitored_hosts_abbrev[i]],
@@ -160,15 +158,15 @@ def update_chart(n_intervals):
             hovertext=f"Avg Ping: {avg_ping}" if avg_ping else "Unreachable"
         ))
 
+
     # chech if notification need to be sent
     current_time = time.time()
     if len(unavailable_hosts) > 0:
         if current_time - last_notification_time > NOTIFICATION_INTERVAL:
             notification = f"Unreachable host(s): {','.join(unavailable_hosts)}"
-            print(notification)
+            send_message(chat_id, bot_token, notification)
             last_notification_time = current_time
-
-
+    
     # Prepare data for the table
     table_data = [{'abbrev': abbrev, 'fqdn': fqdn, 'ip': ip, 'avg_ping': avg_ping} 
                   for abbrev, fqdn, ip, avg_ping in zip(monitored_hosts_abbrev, 
@@ -190,11 +188,13 @@ if __name__ == '__main__':
 
     with Manager() as manager:
         hosts_net_availability = manager.dict()  # Shared dictionary for ping results
+        ping_complete_event = threading.Event()  # Synchronization primitive
 
         # Start the background ping update in a separate thread
-        ping_thread = threading.Thread(target=background_ping_update, args=(hosts_net_availability,))
+        ping_thread = threading.Thread(target=background_ping_update, args=(hosts_net_availability,ping_complete_event))
         ping_thread.daemon = True  # Make it a daemon thread so it exits with the main program
         ping_thread.start()
 
         # Run Dash App
         app.run_server(debug=True)
+
